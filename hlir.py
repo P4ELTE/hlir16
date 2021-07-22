@@ -9,6 +9,7 @@ import json
 import subprocess
 import os
 import os.path
+import shutil
 import tempfile
 
 from hlir16.p4node import P4Node
@@ -80,8 +81,14 @@ def p4_to_json(p4_filename, json_filename=None, p4_version=16, p4c_path=None, op
     if json_filename is None:
         json_filename = f'{filename}.json'
 
-    if p4c_path is None:
-        p4c_path = os.environ['P4C']
+    p4test = shutil.which('p4test')
+    p4include = '/usr/share/p4c/p4include/'
+    if not os.path.exists(p4include):
+        p4include = '/usr/local/share/p4c/p4include/'
+
+    if p4c_path is None and 'P4C' in os.environ:
+        p4test = os.path.join(os.environ['P4C'], "build", "p4test")
+        p4include = os.path.join(os.environ['P4C'], "p4include")
 
     if p4_version is None:
         ext_to_vsn = {
@@ -91,14 +98,12 @@ def p4_to_json(p4_filename, json_filename=None, p4_version=16, p4c_path=None, op
 
         p4_version = ext_to_vsn[ext] if ext in ext_to_vsn else 16
 
-    p4test = os.path.join(p4c_path, "build", "p4test")
-    p4include = os.path.join(p4c_path, "p4include")
-
     version_opts = ['--p4v', f'{p4_version}'] if p4_version is not None else []
     for opt in opts:
         version_opts += ['-D', opt]
 
-    base_cmd = f'{p4test} {p4_filename} -I {p4include} --toJSON {json_filename} --Wdisable=unused'.split(' ')
+    base_cmd = f'{p4test} {p4_filename} -I {p4include} --toJSON {json_filename} --Wdisable=unused'.split(
+        ' ')
     errcode = subprocess.call(base_cmd + version_opts)
 
     return json_filename if errcode == 0 else None

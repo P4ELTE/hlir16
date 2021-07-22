@@ -5,15 +5,12 @@
 # Copyright 2017-2020 Eotvos Lorand University, Budapest, Hungary
 
 
-import json
 import subprocess
 import os
 import os.path
 import shutil
-import tempfile
 
 from hlir16.p4node import P4Node
-from hlir16.hlir_attrs import set_additional_attrs
 
 
 def has_method(obj, method_name):

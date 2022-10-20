@@ -31,6 +31,7 @@ model_specific_infos = {
         "extern_reprs": {
             'InternetChecksum': P4Node({'node_type': 'Type_Bits', 'isSigned': False, 'size': 16, 'padded_size': 16}),
             'Digest':           P4Node({'node_type': 'Type_Bits', 'isSigned': False, 'size': 32, 'padded_size': 32}),
+            'Random':           P4Node({'node_type': 'Type_Bits', 'isSigned': False, 'size': 32, 'padded_size': 32}),
         },
         # psa.p4 does not mark deparsers with @deparser, hence this hack
         "deparsers": ["IngressDeparser", "EgressDeparser"],

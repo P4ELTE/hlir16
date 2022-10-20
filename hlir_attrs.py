@@ -5,12 +5,13 @@
 # Copyright 2017 Eotvos Lorand University, Budapest, Hungary
 
 from hlir16.p4node import P4Node, get_fresh_node_id
-from hlir16.hlir_utils import make_node_group, align8_16_32, unique_list, shorten_locvar_names
-from hlir16.hlir_model import model_specific_infos, smem_types_by_model, packets_by_model
+from hlir16.hlir_utils import make_node_group, align8_16_32, unique_list, shorten_locvar_names, make_canonical_name, make_short_canonical_names
+from hlir16.hlir_model import model_specific_infos
 from hlir16.hlir_attrs_extern import attrs_extern
 
 import hlir16.hlirx_annots
 import hlir16.hlirx_regroup
+import hlir16.hlirx_smem
 
 from compiler_log_warnings_errors import addWarning, addError
 from compiler_common import unique_everseen, dlog
@@ -638,6 +639,9 @@ def compute_fld_sizes(struct):
         if (stk := fld.type).node_type == 'Type_Stack':
             fld.size = stk.stk_size.value * stk.elementType.urtype.size
         elif not ('is_vw' in fld and fld.is_vw):
+            urt = fld.urtype
+            if urt.node_type == 'Type_Struct' and 'size' not in urt:
+                compute_fld_sizes(urt)
             fld.size = fld.urtype.size
         else:
             fld.size = 0
@@ -750,13 +754,6 @@ def set_table_key_attrs(hlir, table):
 
         if 'expr' not in kx:
             k.size = kx.urtype.size
-
-            # TODO remove?
-                # the key element is a local variable in a control
-                # locs = table.control.controlLocals
-                # locvar = locs.get(kx.path.name)
-                # k.size = locvar.urtype.size
-
             continue
 
         kxx = kx.expr
@@ -840,43 +837,6 @@ def set_table_match_type(table):
     if counter['lpm']      > 1: table.matchType.name = 'ternary'
     if counter['lpm']     == 1: table.matchType.name = 'lpm'
     if counter['lpm']     == 0: table.matchType.name = 'exact'
-
-
-# note: Python 3.9 has this as a built-in
-def removeprefix(text, prefix):
-    if text.startswith(prefix):
-        return text[len(prefix):]
-    return text
-
-
-def make_canonical_name(node):
-    annot = node.annotations.annotations.get('name')
-    node.canonical_name = annot.expr[0].value if annot is not None else f'({removeprefix(node.name, "tbl_")})'
-
-
-def make_short_canonical_names(nodes):
-    shorted = set()
-    multiple = set()
-
-    infos = [(node, node.canonical_name, node.canonical_name.split('.')[-1], 'is_hidden' in node and node.is_hidden) for node in nodes]
-
-    for node, canname, shortname, hid in infos:
-        if hid:
-            continue
-        shortname = canname.split('.')[-1]
-        if shortname in multiple:
-            continue
-        if shortname in shorted:
-            shorted.remove(shortname)
-            multiple.add(shortname)
-            continue
-        shorted.add(shortname)
-
-    for node, canname, shortname, hid in infos:
-        if hid:
-            node.short_name = canname
-        else:
-            node.short_name = shortname if shortname in shorted else canname
 
 
 def attrs_controls_tables(hlir):
@@ -1006,188 +966,6 @@ def attrs_header_refs_in_exprs(hlir):
         mexpr.urtype.type_ref = hlir.headers.get(mexpr.urtype.name)
 
 
-def get_ctrlloc_smem_type(loc):
-    type = loc.type.baseType if loc.type.node_type == 'Type_Specialized' else loc.type
-    return type.path.name
-
-
-def get_direct_smems(smem_type, tables):
-    """Gets counters and meters for tables."""
-    return unique_list((t, loc)
-        for t in tables
-        for loc in t.control.controlLocals['Declaration_Instance']
-        if get_ctrlloc_smem_type(loc) == smem_type)
-
-
-def get_smems(smem_type, tables):
-    """Gets counters and meters for tables."""
-    return unique_list((None, loc)
-        for t in tables
-        for loc in t.control.controlLocals['Declaration_Instance']
-        if get_ctrlloc_smem_type(loc) == smem_type)
-
-
-def get_registers(hlir, register_name):
-    reg_insts = hlir.decl_instances
-    local_regs = hlir.controls.flatmap('controlLocals').filter('node_type', 'Declaration_Instance').filter('type.node_type', 'Type_Specialized')
-    return (reg_insts + local_regs).filter('type.baseType.path.name', register_name)
-
-
-# In v1model, all software memory cells are represented as 32 bit integers
-def smem_repr_type(smem):
-    tname = "int" if smem.is_signed else "uint"
-
-    for w in [8,16,32,64]:
-        if smem.size <= w:
-            # note: this should look like the line below, but is used as a postfix of method name apply_direct_smem_* in dataplane.c
-            # return f"REGTYPE({tname},{w})"
-            return f"register_{tname}{w}_t"
-
-    return "NOT_SUPPORTED"
-
-
-def smem_components(hlir, smem, table):
-    get_smem, reverse_get_smem = smem_types_by_model(hlir)
-
-    make_canonical_name(smem)
-
-    smem.is_direct  = smem.smem_type in ('direct_counter', 'direct_meter')
-
-    smem.size = smem.type.arguments[0].urtype.size if smem.smem_type == 'register' else 32
-    smem.is_signed = smem.type.arguments[0].urtype.isSigned if smem.smem_type == 'register' else False
-    smem.is_direct = smem.smem_type in ('direct_counter', 'direct_meter')
-
-    smem.amount = 1 if smem.is_direct else smem.arguments['Argument'][0].expression.value
-
-    base_type = smem_repr_type(smem)
-
-    if smem.smem_type == 'register':
-        smem.name_parts = P4Node([smem.smem_type, smem.name])
-        return [{"type": base_type, "name": smem.name}]
-
-
-    pobs, reverse_pobs = packets_by_model(hlir)
-    smem.packets_or_bytes = reverse_pobs[smem.arguments.map('expression').filter('node_type', 'Member')[0].member]
-
-    smem.smem_for = {
-        "packets": smem.packets_or_bytes in ("packets", "packets_and_bytes"),
-        "bytes":   smem.packets_or_bytes in (  "bytes", "packets_and_bytes"),
-    }
-
-    if smem.is_direct:
-        smem.table = table
-        pkts_parts  = [smem.smem_type, smem.name, pobs['packets'], table.name]
-        bytes_parts = [smem.smem_type, smem.name, pobs['bytes'], table.name]
-    else:
-        pkts_parts  = [smem.smem_type, smem.name, pobs['packets']]
-        bytes_parts = [smem.smem_type, smem.name, pobs['bytes']]
-
-    pkts_name  = '_'.join(pkts_parts)
-    bytes_name = '_'.join(bytes_parts)
-
-    pbs = {
-        "packets":           P4Node([{"for": "packets", "type": base_type, "name": pkts_name}]),
-        "bytes":             P4Node([{"for":   "bytes", "type": base_type, "name": bytes_name}]),
-
-        "packets_and_bytes": P4Node([{"for": "packets", "type": base_type, "name": pkts_name},
-                                     {"for":   "bytes", "type": base_type, "name": bytes_name}]),
-    }
-
-    flatpbs = {
-        "packets":           ['packets'],
-        "bytes":             ['bytes'],
-        "packets_and_bytes": ['packets', 'bytes'],
-    }
-
-
-    smem.insts = P4Node([])
-    for pb in flatpbs[smem.packets_or_bytes]:
-        smem_inst = P4Node({'node_type': 'Smem_Instance'})
-
-        smem_inst.smem = smem
-        smem_inst.name = smem.name
-
-        smem_inst.packets_or_bytes = pb
-
-        smem_inst.is_direct  = smem.smem_type in ('direct_counter', 'direct_meter')
-
-        smem_inst.size = smem.type.arguments[0].urtype.size if smem.smem_type == 'register' else 32
-        smem_inst.is_signed = smem.type.arguments[0].urtype.isSigned if smem.smem_type == 'register' else False
-        smem_inst.is_direct = smem.smem_type in ('direct_counter', 'direct_meter')
-
-        smem_inst.amount = 1 if smem.is_direct else smem.arguments['Argument'][0].expression.value
-
-        smem_inst.table = table if smem_inst.is_direct else None
-
-        packet_or_byte = pobs[pb]
-        if smem_inst.is_direct:
-            smem.name_parts = P4Node([smem.smem_type, smem.name, table.name])
-            smem_inst.name_parts = P4Node([smem.smem_type, smem.name, packet_or_byte, table.name])
-        else:
-            smem.name_parts = P4Node([smem.smem_type, smem.name])
-            smem_inst.name_parts = P4Node([smem.smem_type, smem.name, packet_or_byte])
-
-        hlir.smem_insts.append(smem_inst)
-        smem.insts.append(smem_inst)
-        smem.set_attr(f'smem_{pb}_inst', smem_inst)
-
-    return pbs[smem.packets_or_bytes]
-
-
-def attrs_stateful_memory(hlir):
-    get_smem, reverse_get_smem = smem_types_by_model(hlir)
-
-    # direct counters
-    for table in hlir.tables:
-        table.direct_meters    = P4Node(unique_list(m for t, m in get_direct_smems(get_smem['direct_meter'], [table])))
-        table.direct_counters  = P4Node(unique_list(c for t, c in get_direct_smems(get_smem['direct_counter'], [table])))
-
-    hlir.smem = P4Node({'node_type': 'NodeGroup'})
-
-    # indirect counters
-    hlir.smem.meters    = P4Node(unique_list(get_smems(get_smem['meter'], hlir.tables)))
-    hlir.smem.counters  = P4Node(unique_list(get_smems(get_smem['counter'], hlir.tables)))
-    hlir.smem.registers = P4Node(unique_list(get_registers(hlir, get_smem['register'])))
-
-    dms = [(t, m) for t in hlir.tables for m in t.direct_meters]
-    dcs = [(t, c) for t in hlir.tables for c in t.direct_counters]
-
-    for t in hlir.tables:
-        for m in t.direct_meters:
-            m.table_ref = t
-        for c in t.direct_counters:
-            c.table_ref = t
-
-    hlir.smem.direct_counters = P4Node(unique_list(dcs))
-    hlir.smem.direct_meters = P4Node(unique_list(dms))
-    hlir.smem.all_meters   = hlir.smem.meters   + hlir.smem.direct_meters
-    hlir.smem.all_counters = hlir.smem.counters + hlir.smem.direct_counters
-    hlir.smem.directs      = hlir.smem.direct_meters + hlir.smem.direct_counters
-    hlir.smem.indirects    = hlir.smem.meters + hlir.smem.counters
-    hlir.smem.all          = hlir.smem.all_meters + hlir.smem.all_counters + hlir.smem.registers.map(lambda reg: (None, reg))
-
-    hlir.smem_insts = P4Node([])
-
-    for table, smem in hlir.smem.all:
-        simple_smem_type = smem.type._baseType.path.name
-
-        smem.smem_type  = reverse_get_smem[simple_smem_type]
-        smem.components = smem_components(hlir, smem, table)
-
-    make_short_canonical_names([smem for _, smem in hlir.smem.all_meters])
-    make_short_canonical_names([smem for _, smem in hlir.smem.all_counters])
-    make_short_canonical_names(hlir.smem.registers)
-
-
-def attrs_ref_stateful_memory(hlir):
-    get_smem, reverse_get_smem = smem_types_by_model(hlir)
-
-    for extern in hlir.all_nodes.by_type('Type_Extern'):
-        if extern.name in reverse_get_smem:
-            extern.extern_type = 'smem'
-            extern.smem_type = reverse_get_smem[extern.name]
-
-
 def attrs_typedef(hlir):
     for typedef in hlir.all_nodes.by_type('Type_Typedef'):
         if 'size' in typedef:
@@ -1245,6 +1023,9 @@ def default_attr_funs(p4_filename, p4_version):
     return [
         hlir16.hlirx_regroup.regroup_attrs,
         lambda hlir: attrs_top_level(hlir, p4_filename, p4_version),
+
+        hlir16.hlirx_annots.copy_annots,
+
         hlir16.hlirx_regroup.attrs_regroup_structs,
         hlir16.hlirx_regroup.attrs_regroup_members,
         hlir16.hlirx_regroup.attrs_regroup_path_expressions,
@@ -1285,11 +1066,11 @@ def default_attr_funs(p4_filename, p4_version):
         attrs_controls_tables,
         attrs_extract_nodes,
         attrs_header_refs_in_exprs,
-        attrs_stateful_memory,
+        hlir16.hlirx_smem.attrs_stateful_memory,
         attrs_typedef,
         attrs_extern,
 
-        attrs_ref_stateful_memory,
+        hlir16.hlirx_smem.attrs_ref_stateful_memory,
 
         attrs_reachable_parser_states,
 
@@ -1297,8 +1078,6 @@ def default_attr_funs(p4_filename, p4_version):
 
         attrs_improve_action_names,
         attrs_improve_localvar_names,
-
-        hlir16.hlirx_annots.copy_annots,
     ]
 
 def set_additional_attrs(hlir, p4_filename, p4_version, additional_attr_funs = None):

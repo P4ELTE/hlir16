@@ -40,6 +40,9 @@ def apply_annots(postfix, annots, expr):
     mtpars.vec += extra_args.map('type').map(deep_copy)
     mcargs.vec += extra_args
 
+    condition_par_typevar_name = mtpars[2].type.name
+    expr.methodCall.method.type.typeParameters.parameters.get(condition_par_typevar_name).ignored = True
+
     # remove "checksum"
     del mapars.vec[2]
     del mtpars.vec[2]

@@ -3,8 +3,7 @@
 
 from hlir16.p4node import P4Node
 from hlir16.hlir_ops import simple_binary_ops, complex_binary_ops
-from hlir16.hlir_utils import make_node_group
-from compiler_common import unique_everseen
+from hlir16.hlir_utils import make_node_group, unique_everseen
 from compiler_log_warnings_errors import addError
 
 

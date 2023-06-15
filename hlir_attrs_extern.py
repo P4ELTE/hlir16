@@ -5,14 +5,13 @@
 # Copyright 2017 Eotvos Lorand University, Budapest, Hungary
 
 from hlir16.p4node import P4Node, get_fresh_node_id
-from hlir16.hlir_utils import make_node_group, align8_16_32, unique_list, shorten_locvar_names
+from hlir16.hlir_utils import make_node_group, align8_16_32, unique_list, shorten_locvar_names, unique_everseen, dlog
 from hlir16.hlir_model import model_specific_infos, smem_types_by_model, packets_by_model
 
 import hlir16.hlirx_annots
 import hlir16.hlirx_regroup
 
 from compiler_log_warnings_errors import addWarning, addError
-from compiler_common import unique_everseen, dlog
 
 import re
 from collections import Counter

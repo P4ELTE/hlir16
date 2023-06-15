@@ -14,7 +14,7 @@ import hlir16.hlirx_regroup
 import hlir16.hlirx_smem
 
 from compiler_log_warnings_errors import addWarning, addError
-from compiler_common import unique_everseen, dlog
+from hlir_utils import unique_everseen, dlog
 
 import re
 from collections import Counter

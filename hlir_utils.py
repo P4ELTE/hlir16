@@ -76,3 +76,16 @@ def make_short_canonical_names(nodes):
             node.short_name = canname
         else:
             node.short_name = shortname if shortname in shorted else canname
+
+
+def dlog(num, base=2):
+    """Returns the discrete logarithm of num.
+    For the standard base 2, this is the number of bits required to store the range 0..num."""
+    return [n for n in range(32) if num < base**n][0]
+
+
+def unique_everseen(items):
+    """Returns only the first occurrence of the items in a list.
+    Equivalent to unique_everseen from the package more-itertools."""
+    from collections import OrderedDict
+    return list(OrderedDict.fromkeys(items))

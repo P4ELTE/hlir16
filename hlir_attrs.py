@@ -8,12 +8,12 @@ from hlir16.p4node import P4Node, get_fresh_node_id
 from hlir16.hlir_utils import make_node_group, align8_16_32, unique_list, shorten_locvar_names, make_canonical_name, make_short_canonical_names
 from hlir16.hlir_model import model_specific_infos
 from hlir16.hlir_attrs_extern import attrs_extern
+from hlir16.hlir_errors import addWarning, addError
 
 import hlir16.hlirx_annots
 import hlir16.hlirx_regroup
 import hlir16.hlirx_smem
 
-from compiler_log_warnings_errors import addWarning, addError
 from hlir_utils import unique_everseen, dlog
 
 import re
@@ -116,7 +116,7 @@ def set_typeargs(node: P4Node):
 
     if 'typeargs' in method:
         if node.typeargs != typeargs:
-            addError('getting type arguments', f'Found differing sets of type arguments for {node.name}')
+            addError(hlir, 'getting type arguments', f'Found differing sets of type arguments for {node.name}')
         return
 
     node.typeargs = typeargs
@@ -204,11 +204,11 @@ def resolve_type_name2(hlir, typename_node):
 
 
 # TODO remove this function?
-def check_resolved(node):
+def check_resolved(hlir, node):
     if 'name' in node:
-        addWarning('resolving type', f'Type name {node.name} could not be resolved')
+        addWarning(hlir, 'resolving type', f'Type name {node.name} could not be resolved')
     else:
-        addWarning('resolving type', f'Type {node} could not be resolved')
+        addWarning(hlir, 'resolving type', f'Type {node} could not be resolved')
 
 
 def resolve_type(hlir, node):
@@ -219,7 +219,7 @@ def resolve_type(hlir, node):
     assert resolved_type != node
 
     if resolved_type is None:
-        check_resolved(node)
+        check_resolved(hlir, node)
         return
 
     if resolved_type.node_type == 'Type_Var':
@@ -461,7 +461,7 @@ def check_meta_fields(fldinfos):
                     return f'{fld.type.name}'
                 return f'{fld.type.name} (aka {fld.urtype.name})'
             typeinfos = ''.join((f'    - {fld.name}: {fld_urtype_info(fld)}\n' for fldname, fldtype in fldinfos))
-            addError('getting metadata', f'The name {name} appears in {count[(name, typename)]} metadata fields with different types:\n{typeinfos}')
+            addError(hlir, 'getting metadata', f'The name {name} appears in {count[(name, typename)]} metadata fields with different types:\n{typeinfos}')
 
 def localvar_meta(hlir, name, hdr, hdrt, fld):
     """Creates a meta header with the given name if it does not exist.
@@ -727,7 +727,7 @@ def improve_action_names(ctl, comp, actions, prefix):
     elif (mcall := comp).node_type == 'EmptyStatement':
         pass
     else:
-        addWarning('Improving action names', f'Unexpected statement node type {comp.node_type}')
+        addWarning(hlir, 'Improving action names', f'Unexpected statement node type {comp.node_type}')
 
 
 def attrs_improve_action_names(hlir):
@@ -782,10 +782,14 @@ def set_table_key_attrs(hlir, table):
                 idx = kxx.right.value
                 k.header_name = f'{kxx.left.member}_{idx}'
             else:
-                addWarning("Table key analysis", f"Header not found for key in table {table.name}")
+                addWarning(hlir, "Table key analysis", f"Header not found for key in table {table.name}")
                 continue
 
             k.header = hlir.header_instances.get(k.header_name)
+
+            if k.header is None:
+                # TODO is this available in a more straightforward way?
+                k.header = hlir.news.data.get(k.header_name)
 
             fld = k.header.urtype.fields.get(k.field_name)
             k.size = fld.urtype.size
@@ -1014,6 +1018,12 @@ def attrs_control_locals(hlir):
             vart.needs_dereferencing = 'size' in vart and vart.size > 32
 
 
+def attrs_t4p4s(hlir):
+    hlir.t4p4s = P4Node({'node_type': 'T4P4S'})
+    hlir.t4p4s.warnings = P4Node({'node_type': 'warnings'}, [])
+    hlir.t4p4s.errors = P4Node({'node_type': 'errors'}, [])
+
+
 def attrs_hdr_stacks(hlir):
     hdrstks_idx = 13
     hlir.header_stacks = hlir.object_groups[hdrstks_idx].flatmap('fields').filter('type.node_type', 'Type_Stack')
@@ -1021,6 +1031,8 @@ def attrs_hdr_stacks(hlir):
 
 def default_attr_funs(p4_filename, p4_version):
     return [
+        attrs_t4p4s,
+
         hlir16.hlirx_regroup.regroup_attrs,
         lambda hlir: attrs_top_level(hlir, p4_filename, p4_version),
 

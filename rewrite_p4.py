@@ -9,25 +9,19 @@
 import os
 import ujson
 import hlir16.hlir
+import hlir16.load_p4
 
-p4v = '16'
+p4c_dir = hlir16.load_p4.init_p4c()
+p4c_sample_dir = os.path.join(p4c_dir, 'testdata', 'p4_16_samples')
+
 p4_filename = 'basic2-bmv2.p4'
 p4_json_filename = p4_filename.replace('.p4', '.json')
 
-p4c_dir = os.environ.get('P4C')
-p4c_sample_dir = os.path.join(p4c_dir, 'testdata', 'p4_16_samples')
-
-
+p4_file = os.path.join(p4c_sample_dir, p4_filename)
 json_file = os.path.join(p4c_sample_dir, p4_json_filename)
 
-if not os.path.isfile(json_file):
-    p4_filename = os.path.join(p4c_sample_dir, p4_filename)
-    json_file = hlir16.hlir.p4_to_json(p4_filename)
+hlir = hlir16.load_p4.load_hlir(p4_file, json_file)
 
-with open(json_file, 'r') as json:
-    json_root = ujson.load(json)
-hlir = hlir16.hlir.walk_json_from_top(json_root)
-hlir16.hlir_attrs.set_additional_attrs(hlir, p4_filename, p4v)
 
 import_files = {
     'V1Switch': 'v1model.p4',

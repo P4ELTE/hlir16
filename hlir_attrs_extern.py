@@ -11,8 +11,6 @@ from hlir16.hlir_model import model_specific_infos, smem_types_by_model, packets
 import hlir16.hlirx_annots
 import hlir16.hlirx_regroup
 
-from compiler_log_warnings_errors import addWarning, addError
-
 import re
 from collections import Counter
 

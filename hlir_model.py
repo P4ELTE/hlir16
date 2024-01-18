@@ -5,6 +5,7 @@
 # Copyright 2021 Eotvos Lorand University, Budapest, Hungary
 
 from hlir16.p4node import P4Node
+from hlir16.hlir_errors import addWarning, addError
 
 # These have to be specified here, as the model description file gives ZERO HINTS about them
 model_specific_infos = {
@@ -36,6 +37,31 @@ model_specific_infos = {
         # psa.p4 does not mark deparsers with @deparser, hence this hack
         "deparsers": ["IngressDeparser", "EgressDeparser"],
     },
+
+    # Tofino
+    "Switch": {
+        "user_meta_var": "user_meta",
+        "meta_types": [
+            "egress_intrinsic_metadata_for_deparser_t",
+            "egress_intrinsic_metadata_for_output_port_t",
+            "egress_intrinsic_metadata_from_parser_t",
+            "egress_intrinsic_metadata_t",
+            "egress_metadata_t",
+            "ingress_intrinsic_metadata_for_deparser_t",
+            "ingress_intrinsic_metadata_for_tm_t",
+            "ingress_intrinsic_metadata_from_parser_t",
+            "ingress_intrinsic_metadata_t",
+            "ingress_metadata_t",
+            "srv6_metadata_t",
+        ],
+        "extern_reprs": {
+            'InternetChecksum': P4Node({'node_type': 'Type_Bits', 'isSigned': False, 'size': 16, 'padded_size': 16}),
+            'Digest':           P4Node({'node_type': 'Type_Bits', 'isSigned': False, 'size': 32, 'padded_size': 32}),
+            'Random':           P4Node({'node_type': 'Type_Bits', 'isSigned': False, 'size': 32, 'padded_size': 32}),
+        },
+        # psa.p4 does not mark deparsers with @deparser, hence this hack
+        "deparsers": ["IngressDeparser", "EgressDeparser"],
+    },
 }
 
 def get_infos(hlir, names, model_to_names, description):
@@ -49,9 +75,11 @@ def get_infos(hlir, names, model_to_names, description):
 
 def smem_types_by_model(hlir):
     smems = ['counter', 'direct_counter', 'meter', 'direct_meter', 'register']
+    cap_smem = ['Counter', 'DirectCounter', 'Meter', 'DirectMeter', 'Register']
     model_to_smems = {
         'V1Switch': smems,
-        'PSA_Switch': ['Counter', 'DirectCounter', 'Meter', 'DirectMeter', 'Register'],
+        'PSA_Switch': cap_smem,
+        'Switch': cap_smem,
     }
     return get_infos(hlir, smems, model_to_smems, 'software memories')
 
@@ -59,8 +87,10 @@ def smem_types_by_model(hlir):
 
 def packets_by_model(hlir):
     pobs = ['packets', 'bytes', 'packets_and_bytes']
+    cap_pobs = ['PACKETS', 'BYTES', 'PACKETS_AND_BYTES']
     model_to_pobs = {
         'V1Switch': pobs,
-        'PSA_Switch': ['PACKETS', 'BYTES', 'PACKETS_AND_BYTES'],
+        'PSA_Switch': cap_pobs,
+        'Switch': cap_pobs,
     }
     return get_infos(hlir, pobs, model_to_pobs, 'packet-or-bytes infos')

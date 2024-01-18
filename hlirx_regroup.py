@@ -4,7 +4,7 @@
 from hlir16.p4node import P4Node
 from hlir16.hlir_ops import simple_binary_ops, complex_binary_ops
 from hlir16.hlir_utils import make_node_group, unique_everseen
-from compiler_log_warnings_errors import addError
+from hlir16.hlir_errors import addWarning, addError
 
 
 def remove_nodes(nodes, parent):
@@ -12,6 +12,7 @@ def remove_nodes(nodes, parent):
         assert node in parent, f'Node {node} could not be removed from {parent}'
 
         parent.vec.remove(node)
+
     return nodes
 
 
@@ -60,6 +61,9 @@ def attrs_regroup_structs(hlir):
 
     hlir.news.meta = remove_nodes(structs.filter(lambda s: s.name in meta_type_names), hlir.objects)
     hlir.news.data = remove_nodes(hlir.objects['Type_Struct'], hlir.objects)
+
+    mts = hlir.headers.filter(lambda hdr: hdr.name in hlir.news.meta_types)
+    hlir.news.meta += mts
 
     assert (remaining := len(hlir.objects['Type_Struct'])) == 0, f'{remaining} structs are not identified'
 
